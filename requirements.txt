@@ -1,0 +1,10 @@
+streamlit
+geopandas
+fiona
+shapely
+pyproj
+mapclassify
+matplotlib
+folium
+streamlit-folium
+pyogrio
