@@ -139,6 +139,15 @@ gdf['__color__'] = [class_colors[i] for i in gdf['__class__']]
 with tab_map:
     st.subheader("Interactive Map")
     
+    # Map Controls
+    col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+    with col_ctrl1:
+        legend_style = st.selectbox("Legend Style", ["Continuous Gradient", "Discrete Classes", "Minimal", "None"])
+    with col_ctrl2:
+        legend_position = st.selectbox("Legend Position", ["Bottom Left", "Bottom Right", "Top Left", "Top Right"])
+    with col_ctrl3:
+        fullscreen = st.checkbox("Fullscreen Mode", value=False)
+    
     # Legend
     vmin, vmax = float(s.min()), float(s.max())
     if palette == "Custom":
@@ -146,7 +155,27 @@ with tab_map:
     else:
         legend_colors = utils.get_cmap_hexlist(palette, 9, reverse)
 
-    legend_box = utils.make_continuous_legend_html(legend_colors, vmin, vmax, legend_label)
+    # Create legend based on style
+    if legend_style == "Continuous Gradient":
+        legend_box = utils.make_continuous_legend_html(legend_colors, vmin, vmax, legend_label)
+    elif legend_style == "Discrete Classes":
+        # Create discrete legend
+        legend_items = ""
+        for i in range(classes):
+            color = class_colors[i]
+            bin_min = cl.bins[i-1] if i > 0 else vmin
+            bin_max = cl.bins[i]
+            legend_items += f"<div style='display:flex; align-items:center; margin:4px 0;'><div style='width:20px; height:20px; background:{color}; border:1px solid #333; margin-right:8px;'></div><span style='font-size:11px;'>{bin_min:.1f} - {bin_max:.1f}</span></div>"
+        legend_box = f"""<div style='background:rgba(255,255,255,0.95); padding:12px; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1);'>
+            <div style='font-weight:bold; margin-bottom:8px; font-size:12px;'>{legend_label}</div>
+            {legend_items}
+        </div>"""
+    elif legend_style == "Minimal":
+        legend_box = f"""<div style='background:rgba(255,255,255,0.9); padding:8px; border-radius:4px;'>
+            <span style='font-size:10px;'>{legend_label}: {vmin:.1f} - {vmax:.1f}</span>
+        </div>"""
+    else:
+        legend_box = ""
 
     # Search & Annotations Logic
     name_col = st.sidebar.selectbox("Region Name Column (for Search/Labels)", ["(None)"] + str_cols, index=0)
@@ -176,7 +205,17 @@ with tab_map:
                 annotations.append({'lat': pt.y, 'lon': pt.x, 'text': annot_text})
                 st.success(f"Added: {annot_text}")
 
+    # Map with plugins
     m = folium.Map(location=zoom_center, zoom_start=zoom_start, tiles=tiles)
+    
+    # Add fullscreen button
+    if fullscreen:
+        from folium.plugins import Fullscreen
+        Fullscreen().add_to(m)
+    
+    # Add draw tools
+    from folium.plugins import Draw
+    Draw(export=True, draw_options={'polyline': True, 'polygon': True, 'rectangle': True, 'circle': True, 'marker': True}).add_to(m)
 
     def style_fn(feat):
         return {'color':'#222','weight':0.6,'fillOpacity':opacity,
@@ -193,14 +232,23 @@ with tab_map:
         highlight_function=lambda f: {'weight':2}
     ).add_to(m)
 
+    # Legend position mapping
+    position_map = {
+        "Bottom Left": "left: 16px; bottom: 18px;",
+        "Bottom Right": "right: 16px; bottom: 18px;",
+        "Top Left": "left: 16px; top: 80px;",
+        "Top Right": "right: 16px; top: 80px;"
+    }
+    
     # Legend Marker
-    folium.map.Marker(
-        [gdf.total_bounds[1], gdf.total_bounds[0]], # Bottom-left approximation
-        icon=folium.DivIcon(html=f"""
-        <div style='position: fixed; left: 16px; bottom: 18px; z-index: 9999;'>
-          {legend_box}
-        </div>""" )
-    ).add_to(m)
+    if legend_box:
+        folium.map.Marker(
+            [gdf.total_bounds[1], gdf.total_bounds[0]],
+            icon=folium.DivIcon(html=f"""
+            <div style='position: fixed; {position_map[legend_position]} z-index: 9999;'>
+              {legend_box}
+            </div>""" )
+        ).add_to(m)
 
     # Annotation Markers
     for ann in annotations:
@@ -215,7 +263,8 @@ with tab_map:
     if map_subtitle:
         st.markdown(f"#### {map_subtitle}")
 
-    st_folium(m, height=720, use_container_width=True)
+    map_height = 1000 if fullscreen else 720
+    st_folium(m, height=map_height, use_container_width=True)
 
     if map_source:
         st.caption(map_source)
@@ -225,7 +274,10 @@ with tab_map:
 # -----------------------------------------------------------------------------
 with tab_charts:
     st.subheader("Chart Builder")
-    chart_type = st.selectbox("Chart Type", ["Bar", "Scatter", "Line", "Pie", "Sunburst", "Histogram"])
+    chart_type = st.selectbox("Chart Type", [
+        "Bar", "Scatter", "Line", "Pie", "Sunburst", "Histogram",
+        "Treemap", "Sankey Diagram", "Waterfall", "Funnel", "Box Plot"
+    ])
     
     c1, c2 = st.columns(2)
     with c1:
@@ -287,6 +339,51 @@ with tab_charts:
         else:
             fig = px.sunburst(gdf, path=[color_col, x_axis], values=y_axis, title="Author: Alfrick Onyinkwa")
             st.plotly_chart(fig, use_container_width=True)
+    
+    elif chart_type == "Treemap":
+        if color_col == "(None)":
+            st.warning("Treemap requires a 'Group By' column for hierarchy.")
+        else:
+            fig = px.treemap(gdf, path=[color_col, x_axis], values=y_axis, title="Treemap - Author: Alfrick Onyinkwa")
+            st.plotly_chart(fig, use_container_width=True)
+    
+    elif chart_type == "Sankey Diagram":
+        st.info("Sankey Diagram: Select source and target columns for flow visualization")
+        source_col = st.selectbox("Source Column", all_cols, key="sankey_source")
+        target_col = st.selectbox("Target Column", all_cols, key="sankey_target")
+        
+        if source_col and target_col:
+            # Create Sankey data
+            sankey_df = gdf.groupby([source_col, target_col])[y_axis].sum().reset_index()
+            
+            # Create node labels
+            all_nodes = list(set(sankey_df[source_col].unique()) | set(sankey_df[target_col].unique()))
+            node_dict = {node: idx for idx, node in enumerate(all_nodes)}
+            
+            fig = px.sankey(
+                sankey_df,
+                source=[node_dict[s] for s in sankey_df[source_col]],
+                target=[node_dict[t] for t in sankey_df[target_col]],
+                value=sankey_df[y_axis],
+                labels=all_nodes,
+                title="Sankey Diagram - Author: Alfrick Onyinkwa"
+            )
+            st.plotly_chart(fig, use_container_width=True)
+    
+    elif chart_type == "Waterfall":
+        fig = px.waterfall(gdf, x=x_axis, y=y_axis, title="Waterfall Chart - Author: Alfrick Onyinkwa")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    elif chart_type == "Funnel":
+        fig = px.funnel(gdf, x=y_axis, y=x_axis, title="Funnel Chart - Author: Alfrick Onyinkwa")
+        st.plotly_chart(fig, use_container_width=True)
+    
+    elif chart_type == "Box Plot":
+        if color_col != "(None)":
+            fig = px.box(gdf, x=color_col, y=y_axis, title="Box Plot - Author: Alfrick Onyinkwa")
+        else:
+            fig = px.box(gdf, y=y_axis, title="Box Plot - Author: Alfrick Onyinkwa")
+        st.plotly_chart(fig, use_container_width=True)
 
 # -----------------------------------------------------------------------------
 # Tab 3: Data Table & Insights

@@ -1,0 +1,29 @@
+{
+    "name": "National Geographic",
+    "colors": {
+        "primary": "#ffcc00",
+        "secondary": "#000000",
+        "text": "#1a1a1a",
+        "background": "#fffef2"
+    },
+    "fonts": {
+        "title": "serif",
+        "body": "serif"
+    },
+    "layout": {
+        "page_size": "A3",
+        "orientation": "landscape",
+        "margins": {
+            "top": 0.12,
+            "bottom": 0.15,
+            "left": 0.08,
+            "right": 0.08
+        }
+    },
+    "elements": {
+        "show_graticules": true,
+        "show_inset": true,
+        "show_disclaimer": false,
+        "disclaimer_text": ""
+    }
+}

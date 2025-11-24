@@ -1,0 +1,29 @@
+{
+    "name": "New York Times",
+    "colors": {
+        "primary": "#000000",
+        "secondary": "#6d6d6d",
+        "text": "#121212",
+        "background": "#ffffff"
+    },
+    "fonts": {
+        "title": "serif",
+        "body": "serif"
+    },
+    "layout": {
+        "page_size": "Letter",
+        "orientation": "portrait",
+        "margins": {
+            "top": 0.1,
+            "bottom": 0.1,
+            "left": 0.08,
+            "right": 0.08
+        }
+    },
+    "elements": {
+        "show_graticules": false,
+        "show_inset": false,
+        "show_disclaimer": false,
+        "disclaimer_text": ""
+    }
+}

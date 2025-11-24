@@ -1,0 +1,29 @@
+{
+    "name": "The Economist",
+    "colors": {
+        "primary": "#e3120b",
+        "secondary": "#0a0a0a",
+        "text": "#1a1a1a",
+        "background": "#ffffff"
+    },
+    "fonts": {
+        "title": "serif",
+        "body": "sans-serif"
+    },
+    "layout": {
+        "page_size": "A4",
+        "orientation": "portrait",
+        "margins": {
+            "top": 0.1,
+            "bottom": 0.12,
+            "left": 0.06,
+            "right": 0.06
+        }
+    },
+    "elements": {
+        "show_graticules": false,
+        "show_inset": true,
+        "show_disclaimer": false,
+        "disclaimer_text": ""
+    }
+}

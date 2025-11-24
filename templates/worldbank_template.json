@@ -1,0 +1,29 @@
+{
+    "name": "World Bank",
+    "colors": {
+        "primary": "#002244",
+        "secondary": "#009fda",
+        "text": "#333333",
+        "background": "#ffffff"
+    },
+    "fonts": {
+        "title": "serif",
+        "body": "sans-serif"
+    },
+    "layout": {
+        "page_size": "A4",
+        "orientation": "landscape",
+        "margins": {
+            "top": 0.08,
+            "bottom": 0.12,
+            "left": 0.05,
+            "right": 0.05
+        }
+    },
+    "elements": {
+        "show_graticules": true,
+        "show_inset": false,
+        "show_disclaimer": true,
+        "disclaimer_text": "This map was produced by the World Bank Group. The boundaries, colors, denominations and any other information shown on this map do not imply any judgment on the legal status of any territory or any endorsement or acceptance of such boundaries."
+    }
+}

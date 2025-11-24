@@ -8,3 +8,14 @@ matplotlib
 folium
 streamlit-folium
 pyogrio
+altair
+plotly
+scipy
+contextily
+pandas
+google-generativeai
+python-pptx
+qrcode
+pillow
+openpyxl
+osmnx

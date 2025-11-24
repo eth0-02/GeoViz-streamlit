@@ -2,85 +2,117 @@ import streamlit as st
 import geopandas as gpd
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.patches as mpatches
+from matplotlib.backends.backend_pdf import PdfPages
 import utils
 import tempfile
 from pathlib import Path
 import matplotlib.tri as tri
 import numpy as np
+import json
+import io
 
-st.set_page_config(page_title="GeoViz Carto", layout="wide")
+st.set_page_config(page_title="GeoViz Carto Pro", layout="wide", page_icon="🗺️")
 
-st.title("GeoViz Carto: Professional Static Maps")
-st.caption("Create high-quality, print-ready maps with contours, north arrows, and scale bars. **Code/Author: Alfrick Onyinkwa**")
+st.title("🗺️ GeoViz Carto: Professional Cartography Studio")
+st.caption("Create UN/NGO/Embassy-grade maps | **Code/Author: Alfrick Onyinkwa**")
 
 # -----------------------------------------------------------------------------
-# 1. Data Input
+# Sidebar: Data & Template
 # -----------------------------------------------------------------------------
 with st.sidebar:
-    st.header("1) Data")
+    st.header("1) Data Input")
     up = st.file_uploader("Upload GPKG / GeoJSON / Shapefile", type=["gpkg","geojson","json","zip","shp"])
     
-    st.header("2) Map Type")
+    st.header("2) Institutional Template")
+    template_choice = st.selectbox("Template", [
+        "UN Standard", 
+        "FAO Standard", 
+        "World Bank",
+        "Esri Professional",
+        "National Geographic",
+        "New York Times",
+        "The Economist",
+        "Modern Minimalist",
+        "Custom"
+    ])
+    
+    # Load template
+    template_map = {
+        "UN Standard": "templates/un_template.json",
+        "FAO Standard": "templates/fao_template.json",
+        "World Bank": "templates/worldbank_template.json",
+        "Esri Professional": "templates/esri_template.json",
+        "National Geographic": "templates/natgeo_template.json",
+        "New York Times": "templates/nyt_template.json",
+        "The Economist": "templates/economist_template.json",
+        "Modern Minimalist": "templates/minimalist_template.json"
+    }
+    
+    if template_choice != "Custom":
+        with open(template_map[template_choice], 'r') as f:
+            template = json.load(f)
+    else:
+        template = {
+            "colors": {"primary": "#009edb", "text": "#333333", "background": "#ffffff"},
+            "elements": {"show_graticules": True, "show_disclaimer": True, 
+                        "disclaimer_text": "Map for illustrative purposes only."}
+        }
+    
+    st.header("3) Map Type & Classification")
     map_type = st.selectbox("Type", ["Choropleth", "Contours (Filled)"])
     
-    # Classification (Only for Choropleth)
     if map_type == "Choropleth":
         st.caption("Classification Scheme")
         scheme_name = st.selectbox("Scheme", ["Quantiles", "Equal Interval", "Jenks", "Continuous"], index=0)
         if scheme_name != "Continuous":
             k_classes = st.slider("Classes", 3, 9, 5)
     
-    st.header("3) Styling & Basemap")
-    cmap = st.selectbox("Colormap", ["viridis", "plasma", "inferno", "magma", "cividis", "RdBu_r", "Spectral_r"])
-    
-    # Font Selection
-    font_name = st.selectbox("Font Family", ["Default", "Roboto (Sans)", "Open Sans", "Montserrat (Modern)", "Merriweather (Serif)", "Playfair Display", "Monospace (Code)"])
+    st.header("4) Styling")
+    cmap = st.selectbox("Colormap", [
+        "YlOrRd", "RdYlGn_r", "Blues", "Greens", "Purples",
+        "viridis", "plasma", "inferno", "magma", "cividis",
+        "Spectral_r", "RdBu_r", "PiYG", "BrBG"
+    ])
+    font_name = st.selectbox("Font", ["Roboto (Sans)", "Merriweather (Serif)", "Montserrat (Modern)", "Playfair Display"])
     font_props = utils.get_font_properties(font_name)
     
-    # Basemap Options
-    use_basemap = st.checkbox("Add Basemap (Contextily)", value=False)
+    # Custom Colors
+    with st.expander("🎨 Advanced Color Customization"):
+        custom_primary = st.color_picker("Primary Color", template["colors"]["primary"])
+        custom_text = st.color_picker("Text Color", template["colors"]["text"])
+        template["colors"]["primary"] = custom_primary
+        template["colors"]["text"] = custom_text
+    
+    use_basemap = st.checkbox("Add Basemap", value=False)
     if use_basemap:
-        basemap_source = st.selectbox("Provider", ["OpenStreetMap.Mapnik", "CartoDB.Positron", "CartoDB.DarkMatter", "Esri.WorldImagery"])
-        alpha = st.slider("Layer Opacity", 0.0, 1.0, 0.7)
+        basemap_source = st.selectbox("Provider", ["CartoDB.Positron", "CartoDB.Voyager", "Esri.WorldGrayCanvas", "Esri.WorldImagery"])
+        alpha = st.slider("Layer Opacity", 0.0, 1.0, 0.8)
     else:
-        bg_color = st.color_picker("Background Color", "#ffffff")
         alpha = 1.0
-
-    st.header("4) Elements")
+    
+    st.header("5) Professional Elements")
+    show_graticules = st.checkbox("Graticules (Lat/Long Grid)", value=template["elements"]["show_graticules"])
+    show_inset = st.checkbox("Inset Locator Map", value=template["elements"].get("show_inset", False))
     show_north = st.checkbox("North Arrow", value=True)
-    if show_north:
-        north_style = st.selectbox("Arrow Style", ["Simple", "Fancy", "Minimal"])
-    
+    north_style = st.selectbox("Arrow Style", ["Simple", "Fancy", "Minimal"])
     show_scale = st.checkbox("Scale Bar", value=True)
-    show_grid = st.checkbox("Gridlines", value=False)
     
-    st.header("5) Layout & Legend")
-    title = st.text_input("Map Title", "My Professional Map")
-    subtitle = st.text_input("Subtitle", "Created with GeoViz Studio")
+    # Logo Upload
+    logo_file = st.file_uploader("📷 Upload Organization Logo (PNG/JPG)", type=["png", "jpg", "jpeg"])
     
-    # Legend options
-    if map_type == "Choropleth" and scheme_name != "Continuous":
-        legend_loc = st.selectbox("Legend Position", ["best", "lower right", "lower left", "upper right", "upper left", "center right", "outside bottom", "outside right"])
-        legend_cols = st.slider("Legend Columns", 1, 4, 1)
-        legend_frame = st.checkbox("Frame Legend", value=True)
-    else:
-        st.caption("Legend positioning is only available for classified (discrete) maps.")
+    st.header("6) Layout")
+    page_size = st.selectbox("Page Size", ["A4", "A3", "Letter"])
+    orientation = st.selectbox("Orientation", ["Portrait", "Landscape"])
     
-    st.header("6) Notes & Analysis")
-    default_notes = "Data source: ...\nCoordinate System: Web Mercator (EPSG:3857)"
+    title = st.text_input("Map Title", "GEOSPATIAL ANALYSIS")
+    subtitle = st.text_input("Subtitle", f"Created with GeoViz Studio | {template_choice}")
     
-    # Smart Analysis Button
-    if st.button("Generate Smart Analysis"):
-        analysis_text = utils.analyze_data(gdf, col)
-        default_notes = analysis_text + "\n" + default_notes
-        
-    map_notes = st.text_area("Map Notes", default_notes, height=150)
-    
-    st.divider()
-    st.markdown("**Code/Author:** Alfrick Onyinkwa")
+    st.header("7) Export Format")
+    export_format = st.selectbox("Format", ["High-Res PNG (300 DPI)", "Vector PDF", "SVG (Illustrator)"])
 
 if not up:
-    st.info("Please upload a dataset to start.")
+    st.info("📤 Upload a dataset to begin creating your professional map.")
     st.stop()
 
 # Load Data
@@ -92,13 +124,12 @@ if file_path.suffix.lower() == '.gpkg':
     file_path = utils.ensure_usable_gpkg(file_path)
 
 layers = utils.list_layers_safe(file_path)
-layer = st.sidebar.selectbox("Layer", layers)
+layer = st.selectbox("Select Layer", layers) if len(layers) > 1 else layers[0]
 gdf = utils.read_layer_any(file_path, layer)
 
-# Reprojection Logic
+# Reprojection
 target_crs = 3857 if use_basemap else 4326
 if gdf.crs is None:
-    st.warning(f"CRS is missing. Assuming EPSG:{target_crs}.")
     gdf = gdf.set_crs(target_crs)
 else:
     gdf = gdf.to_crs(target_crs)
@@ -108,124 +139,171 @@ if not num_cols:
     st.error("No numeric columns found.")
     st.stop()
 
-col = st.sidebar.selectbox("Column to Map", num_cols)
+col = st.selectbox("Column to Visualize", num_cols)
+
+# Analysis Section
+st.subheader("📊 Data Analysis & Notes")
+col1, col2 = st.columns(2)
+with col1:
+    if st.button("📊 Generate Statistics"):
+        analysis_text = utils.analyze_data(gdf, col)
+        st.session_state['analysis'] = analysis_text
+
+with col2:
+    if st.button("🤖 AI Insights (Gemini)"):
+        api_key = "AIzaSyB9N7PB-VEbALC2EcnXQdY_B50QRTpcBL0"
+        with st.spinner("AI analyzing..."):
+            ai_text = utils.generate_ai_insights(gdf, col, api_key)
+            st.session_state['ai_insights'] = ai_text
+
+notes_default = st.session_state.get('analysis', '') + "\n\n" + st.session_state.get('ai_insights', '')
+map_notes = st.text_area("Map Notes", notes_default if notes_default.strip() else "Data Source: ...", height=100)
+
+disclaimer_text = st.text_area("Disclaimer", template["elements"]["disclaimer_text"], height=80)
 
 # -----------------------------------------------------------------------------
-# 2. Rendering Engine
+# PROFESSIONAL MAP RENDERING
 # -----------------------------------------------------------------------------
-st.subheader("Map Preview")
+st.subheader("🗺️ Map Preview")
 
-fig, ax = plt.subplots(figsize=(12, 10))
-if not use_basemap:
-    ax.set_facecolor(bg_color)
-    fig.patch.set_facecolor(bg_color)
+# Page size configuration
+page_sizes = {
+    "A4": (8.27, 11.69) if orientation == "Portrait" else (11.69, 8.27),
+    "A3": (11.69, 16.54) if orientation == "Portrait" else (16.54, 11.69),
+    "Letter": (8.5, 11) if orientation == "Portrait" else (11, 8.5)
+}
+figsize = page_sizes[page_size]
 
-# Plot Data
+# Create figure with professional layout
+fig = plt.figure(figsize=figsize, facecolor='white')
+
+# Define layout grid
+# Header: 10%, Map: 70%, Legend/Footer: 15%, Disclaimer: 5%
+gs = fig.add_gridspec(4, 1, height_ratios=[0.10, 0.70, 0.15, 0.05], hspace=0.02)
+
+# Header
+ax_header = fig.add_subplot(gs[0, 0])
+ax_header.axis('off')
+ax_header.text(0.5, 0.6, title, ha='center', va='center', fontsize=20, fontweight='bold', 
+               color=template["colors"]["primary"], **font_props)
+ax_header.text(0.5, 0.2, subtitle, ha='center', va='center', fontsize=11, 
+               color=template["colors"]["text"], **font_props)
+
+# Main Map
+ax_map = fig.add_subplot(gs[1, 0])
+
+# Plot data
 if map_type == "Choropleth":
     if scheme_name == "Continuous":
-        # Continuous Colorbar
-        gdf.plot(column=col, ax=ax, cmap=cmap, legend=True, alpha=alpha,
-                 legend_kwds={'shrink': 0.5, 'label': col},
-                 edgecolor='#333333', linewidth=0.5)
+        gdf.plot(column=col, ax=ax_map, cmap=cmap, legend=False, alpha=alpha,
+                 edgecolor='#666666', linewidth=0.3)
     else:
-        # Discrete Legend
         scheme_map = {"Quantiles": "quantiles", "Equal Interval": "equal_interval", "Jenks": "fisher_jenks"}
         scheme = scheme_map.get(scheme_name, "quantiles")
-        
-        leg_kwds = {'ncol': legend_cols, 'fmt': '{:.0f}', 'frameon': legend_frame}
-        
-        if legend_loc == "outside bottom":
-            leg_kwds.update({'loc': 'upper center', 'bbox_to_anchor': (0.5, -0.05)})
-        elif legend_loc == "outside right":
-            leg_kwds.update({'loc': 'center left', 'bbox_to_anchor': (1, 0.5)})
-        else:
-            leg_kwds.update({'loc': legend_loc})
-        
-        # Apply font props to legend?
-        # geopandas plot doesn't easily accept fontprops for legend, but we can try to access it later
-        # For now, we rely on global or post-hoc adjustment if needed, but let's just stick to standard
-        
-        gdf.plot(column=col, ax=ax, cmap=cmap, legend=True, scheme=scheme, k=k_classes, alpha=alpha,
-                 legend_kwds=leg_kwds,
-                 edgecolor='#333333', linewidth=0.5)
+        gdf.plot(column=col, ax=ax_map, cmap=cmap, legend=False, scheme=scheme, k=k_classes, alpha=alpha,
+                 edgecolor='#666666', linewidth=0.3)
 
 elif map_type == "Contours (Filled)":
-    # Generate contours from centroids
-    points = gdf.geometry.centroid
-    x = points.x
-    y = points.y
-    z = gdf[col].fillna(0)
-    
-    # Interpolation / Smoothing
     from scipy.interpolate import griddata
-    
-    # Create a grid
+    points = gdf.geometry.centroid
+    x, y, z = points.x, points.y, gdf[col].fillna(0)
     xi = np.linspace(x.min(), x.max(), 200)
     yi = np.linspace(y.min(), y.max(), 200)
     xi, yi = np.meshgrid(xi, yi)
-    
-    # Interpolate
     zi = griddata((x, y), z, (xi, yi), method='cubic')
-    
-    # Contourf on grid
-    cntr = ax.contourf(xi, yi, zi, levels=14, cmap=cmap, alpha=alpha)
-    
-    cbar = fig.colorbar(cntr, ax=ax, shrink=0.5, label=col, pad=0.02)
-    cbar.ax.tick_params(labelsize=8)
-    
-    gdf.plot(ax=ax, facecolor='none', edgecolor='#555555', linewidth=0.3, alpha=0.5)
+    ax_map.contourf(xi, yi, zi, levels=14, cmap=cmap, alpha=alpha)
+    gdf.plot(ax=ax_map, facecolor='none', edgecolor='#555555', linewidth=0.2)
 
 # Basemap
 if use_basemap:
     import contextily as ctx
+    provider = ctx.providers.CartoDB.Positron
+    if basemap_source == "CartoDB.Voyager": provider = ctx.providers.CartoDB.Voyager
+    if basemap_source == "Esri.WorldGrayCanvas": provider = ctx.providers.Esri.WorldGrayCanvas
     try:
-        provider = ctx.providers.OpenStreetMap.Mapnik
-        if basemap_source == "CartoDB.Positron": provider = ctx.providers.CartoDB.Positron
-        if basemap_source == "CartoDB.DarkMatter": provider = ctx.providers.CartoDB.DarkMatter
-        if basemap_source == "Esri.WorldImagery": provider = ctx.providers.Esri.WorldImagery
-        
-        ctx.add_basemap(ax, crs=gdf.crs.to_string(), source=provider)
-    except Exception as e:
-        st.error(f"Error loading basemap: {e}")
+        ctx.add_basemap(ax_map, crs=gdf.crs.to_string(), source=provider, alpha=0.5)
+    except: pass
 
-# Elements
+# Graticules
+if show_graticules:
+    ax_map.grid(True, linestyle=':', alpha=0.4, color='#666666', linewidth=0.5)
+    ax_map.tick_params(labelsize=7)
+
+# North Arrow
 if show_north:
-    utils.draw_north_arrow(ax, style=north_style)
+    utils.draw_north_arrow(ax_map, location=(0.95, 0.92), size=0.04, style=north_style)
 
+# Scale Bar
 if show_scale:
-    utils.draw_scale_bar(ax, gdf.total_bounds, crs_is_geographic=(target_crs == 4326))
+    utils.draw_scale_bar(ax_map, gdf.total_bounds, crs_is_geographic=(target_crs == 4326))
 
-if show_grid:
-    ax.grid(True, linestyle='--', alpha=0.5, color='#aaaaaa')
+ax_map.set_xlabel("Longitude" if target_crs == 4326 else "Easting (m)", fontsize=8)
+ax_map.set_ylabel("Latitude" if target_crs == 4326 else "Northing (m)", fontsize=8)
 
-# Layout
-# Title Block
-plt.figtext(0.5, 0.95, title, ha='center', fontsize=22, fontweight='bold', **font_props)
-plt.figtext(0.5, 0.91, subtitle, ha='center', fontsize=14, color='#555555', **font_props)
+# Footer (Legend + Credits + Logo)
+ax_footer = fig.add_subplot(gs[2, 0])
+ax_footer.axis('off')
 
-# Map Notes (Bottom Left)
-if map_notes:
-    plt.figtext(0.02, 0.02, map_notes, ha='left', va='bottom', fontsize=9, color='#444444', 
-                bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', boxstyle='round,pad=0.5'), **font_props)
+# Create legend manually
+s = pd.to_numeric(gdf[col], errors='coerce')
+if scheme_name != "Continuous" and map_type == "Choropleth":
+    from mapclassify import classify
+    bins = classify(s, scheme=scheme, k=k_classes)
+    cmap_obj = plt.cm.get_cmap(cmap, k_classes)
+    
+    legend_elements = []
+    for i in range(k_classes):
+        color = cmap_obj(i)
+        label = f"{bins.bins[i-1]:.1f} - {bins.bins[i]:.1f}" if i > 0 else f"< {bins.bins[i]:.1f}"
+        legend_elements.append(mpatches.Patch(facecolor=color, edgecolor='black', label=label))
+    
+    ax_footer.legend(handles=legend_elements, loc='upper left', ncol=min(k_classes, 5), 
+                     frameon=True, fontsize=8, title=col)
 
-# Author Credit (Bottom Right - Prominent)
-plt.figtext(0.98, 0.02, "Code/Author: Alfrick Onyinkwa", ha='right', va='bottom', 
-            fontsize=11, fontweight='bold', color='#333333',
-            bbox=dict(facecolor='white', alpha=0.8, edgecolor='none', boxstyle='round,pad=0.5'), **font_props)
+# Logo
+if logo_file is not None:
+    from matplotlib.offsetbox import OffsetImage, AnnotationBbox
+    from PIL import Image
+    logo_img = Image.open(logo_file)
+    imagebox = OffsetImage(logo_img, zoom=0.08)
+    ab = AnnotationBbox(imagebox, (0.5, 0.5), xycoords='axes fraction', frameon=False)
+    ax_footer.add_artist(ab)
 
-# Remove axes ticks if desired, or keep them for reference
-if target_crs == 3857:
-    ax.set_axis_off() # Usually cleaner for basemaps
-else:
-    ax.set_xlabel("Longitude")
-    ax.set_ylabel("Latitude")
+# Credits
+ax_footer.text(0.98, 0.5, f"Author: Alfrick Onyinkwa | {pd.Timestamp.now().strftime('%B %Y')}", 
+               ha='right', va='center', fontsize=9, **font_props)
 
+# Disclaimer
+ax_disclaimer = fig.add_subplot(gs[3, 0])
+ax_disclaimer.axis('off')
+ax_disclaimer.text(0.5, 0.5, disclaimer_text, ha='center', va='center', fontsize=7, 
+                   color='#666666', style='italic', wrap=True, **font_props)
+
+plt.tight_layout()
+
+# Display
 st.pyplot(fig)
 
 # Export
-import io
-buf = io.BytesIO()
-plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-buf.seek(0)
+st.subheader("📥 Export Your Map")
 
-st.download_button("Download High-Res Map (PNG)", data=buf, file_name="carto_map.png", mime="image/png")
+if export_format == "High-Res PNG (300 DPI)":
+    buf = io.BytesIO()
+    plt.savefig(buf, format='png', dpi=300, bbox_inches='tight', facecolor='white')
+    buf.seek(0)
+    st.download_button("⬇️ Download PNG", data=buf, file_name="professional_map.png", mime="image/png")
+
+elif export_format == "Vector PDF":
+    pdf_buf = io.BytesIO()
+    with PdfPages(pdf_buf) as pdf:
+        pdf.savefig(fig, bbox_inches='tight')
+    pdf_buf.seek(0)
+    st.download_button("⬇️ Download PDF", data=pdf_buf, file_name="professional_map.pdf", mime="application/pdf")
+
+elif export_format == "SVG (Illustrator)":
+    svg_buf = io.BytesIO()
+    plt.savefig(svg_buf, format='svg', bbox_inches='tight')
+    svg_buf.seek(0)
+    st.download_button("⬇️ Download SVG", data=svg_buf, file_name="professional_map.svg", mime="image/svg+xml")
+
+plt.close(fig)

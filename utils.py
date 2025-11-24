@@ -369,4 +369,50 @@ def get_font_properties(font_name):
     else:
         return {'fontfamily': 'sans-serif'}
 
+def generate_ai_insights(df, col, api_key):
+    """
+    Uses Google Gemini API to generate intelligent insights about the data.
+    """
+    try:
+        import google.generativeai as genai
+        
+        # Get basic stats
+        s = pd.to_numeric(df[col], errors='coerce').dropna()
+        if s.empty:
+            return "No numeric data available for AI analysis."
+        
+        desc = s.describe()
+        
+        # Prepare context for AI
+        context = f"""
+        Dataset Analysis Request:
+        - Column: {col}
+        - Total Records: {len(df)}
+        - Mean: {desc['mean']:.2f}
+        - Median: {desc['50%']:.2f}
+        - Min: {desc['min']:.2f}
+        - Max: {desc['max']:.2f}
+        - Std Dev: {desc['std']:.2f}
+        - Skewness: {s.skew():.2f}
+        
+        Generate a concise, professional 2-3 sentence narrative describing:
+        1. The overall pattern/distribution
+        2. Any notable insights or anomalies
+        3. What this might indicate for decision-makers
+        
+        Keep it under 100 words and use clear, non-technical language.
+        """
+        
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-pro')
+        
+        response = model.generate_content(context)
+        
+        insight = response.text.strip()
+        return f"🤖 AI Insights (Gemini):\n{insight}"
+        
+    except Exception as e:
+        return f"AI Analysis unavailable: {str(e)}"
+
+
 

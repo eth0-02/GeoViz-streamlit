@@ -1,0 +1,29 @@
+{
+    "name": "UN Standard",
+    "colors": {
+        "primary": "#009edb",
+        "secondary": "#56c02b",
+        "text": "#333333",
+        "background": "#ffffff"
+    },
+    "fonts": {
+        "title": "sans-serif",
+        "body": "sans-serif"
+    },
+    "layout": {
+        "page_size": "A4",
+        "orientation": "portrait",
+        "margins": {
+            "top": 0.1,
+            "bottom": 0.15,
+            "left": 0.05,
+            "right": 0.05
+        }
+    },
+    "elements": {
+        "show_graticules": true,
+        "show_inset": true,
+        "show_disclaimer": true,
+        "disclaimer_text": "The boundaries and names shown and the designations used on this map do not imply official endorsement or acceptance by the United Nations."
+    }
+}

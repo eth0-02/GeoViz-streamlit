@@ -1,0 +1,29 @@
+{
+    "name": "Modern Minimalist",
+    "colors": {
+        "primary": "#2c3e50",
+        "secondary": "#3498db",
+        "text": "#34495e",
+        "background": "#ecf0f1"
+    },
+    "fonts": {
+        "title": "sans-serif",
+        "body": "sans-serif"
+    },
+    "layout": {
+        "page_size": "A4",
+        "orientation": "portrait",
+        "margins": {
+            "top": 0.15,
+            "bottom": 0.15,
+            "left": 0.1,
+            "right": 0.1
+        }
+    },
+    "elements": {
+        "show_graticules": false,
+        "show_inset": false,
+        "show_disclaimer": false,
+        "disclaimer_text": ""
+    }
+}

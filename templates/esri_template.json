@@ -1,0 +1,29 @@
+{
+    "name": "Esri Professional",
+    "colors": {
+        "primary": "#007ac2",
+        "secondary": "#6e6e6e",
+        "text": "#323232",
+        "background": "#f7f7f7"
+    },
+    "fonts": {
+        "title": "sans-serif",
+        "body": "sans-serif"
+    },
+    "layout": {
+        "page_size": "A3",
+        "orientation": "landscape",
+        "margins": {
+            "top": 0.08,
+            "bottom": 0.12,
+            "left": 0.05,
+            "right": 0.05
+        }
+    },
+    "elements": {
+        "show_graticules": true,
+        "show_inset": true,
+        "show_disclaimer": true,
+        "disclaimer_text": "Map created with Esri-style cartography. For reference purposes only."
+    }
+}

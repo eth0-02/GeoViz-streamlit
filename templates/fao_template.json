@@ -1,0 +1,29 @@
+{
+    "name": "FAO Standard",
+    "colors": {
+        "primary": "#1e8449",
+        "secondary": "#f39c12",
+        "text": "#2c3e50",
+        "background": "#ffffff"
+    },
+    "fonts": {
+        "title": "sans-serif",
+        "body": "sans-serif"
+    },
+    "layout": {
+        "page_size": "A4",
+        "orientation": "portrait",
+        "margins": {
+            "top": 0.1,
+            "bottom": 0.15,
+            "left": 0.05,
+            "right": 0.05
+        }
+    },
+    "elements": {
+        "show_graticules": true,
+        "show_inset": true,
+        "show_disclaimer": true,
+        "disclaimer_text": "The designations employed and the presentation of material in this map do not imply the expression of any opinion whatsoever on the part of FAO concerning the legal status of any country, territory, city or area."
+    }
+}
