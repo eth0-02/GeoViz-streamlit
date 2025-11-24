@@ -9,6 +9,7 @@ import fiona
 import mapclassify as mc
 from matplotlib import cm, colors as mplcolors
 import sqlite3
+import streamlit as st
 
 try:
     import pyogrio
@@ -28,6 +29,7 @@ def unpack_shapefile_zip(path: Path) -> Path:
         raise RuntimeError("ZIP does not contain a .shp file.")
     return shp
 
+@st.cache_data(show_spinner=False)
 def list_layers_safe(path: Path):
     try:
         return fiona.listlayers(path.as_posix())
@@ -39,6 +41,7 @@ def list_layers_safe(path: Path):
                 pass
         return ["_single_"]
 
+@st.cache_data(show_spinner="Loading data...")
 def read_layer_any(path: Path, layer: str):
     if is_zip_shapefile(path):
         shp = unpack_shapefile_zip(path)
@@ -61,17 +64,21 @@ def read_layer_any(path: Path, layer: str):
 def numeric_columns(gdf: gpd.GeoDataFrame):
     return [c for c in gdf.columns if c != "geometry" and pd.api.types.is_numeric_dtype(gdf[c])]
 
-def classify(values: pd.Series, scheme: str, k: int):
+@st.cache_data(show_spinner=False)
+def classify(_values: pd.Series, scheme: str, k: int):
+    """Classify values using mapclassify. Note: _values prefix for hash_funcs compatibility."""
     scheme = (scheme or "quantile").lower()
     if scheme in ["quantile","quantiles","q"]:
-        return mc.Quantiles(values, k=k)
+        return mc.Quantiles(_values, k=k)
     if scheme in ["equal","equalinterval","ei"]:
-        return mc.EqualInterval(values, k=k)
+        return mc.EqualInterval(_values, k=k)
     if scheme in ["jenks","naturalbreaks","nb"]:
-        return mc.NaturalBreaks(values, k=k)
-    return mc.Quantiles(values, k=k)
+        return mc.NaturalBreaks(_values, k=k)
+    return mc.Quantiles(_values, k=k)
 
+@st.cache_data(show_spinner=False)
 def get_cmap_hexlist(name: str, steps: int, reverse: bool=False):
+    """Get color palette as hex list. Cached for performance."""
     cmap = cm.get_cmap(name, steps)
     seq = range(steps-1, -1, -1) if reverse else range(steps)
     return [mplcolors.to_hex(cmap(i)) for i in seq]

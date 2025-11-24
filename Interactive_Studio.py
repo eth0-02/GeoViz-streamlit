@@ -1,14 +1,14 @@
-# Datawrapper-Pro (GPKG-Ready)
+# Datawrapper-Pro (GPKG-Ready) - Performance Optimized
 import tempfile
 from pathlib import Path
 import streamlit as st
 import pandas as pd
 import geopandas as gpd
-import folium
-from streamlit_folium import st_folium
 import altair as alt
 import utils
-import plotly.express as px
+
+# Lazy imports for heavy libraries
+# folium, plotly imported only when needed
 
 # -----------------------------------------------------------------------------
 # 1. Page Config & Header
@@ -64,15 +64,52 @@ with st.sidebar:
     st.markdown("**Code/Author:** Alfrick Onyinkwa")
 
 # -----------------------------------------------------------------------------
-# 3. Data Loading & Preprocessing
+# 3. Data Loading & Preprocessing (CACHED FOR PERFORMANCE)
 # -----------------------------------------------------------------------------
 if not up:
     st.info("Upload a dataset to begin.")
     st.stop()
 
+@st.cache_data(show_spinner="Processing file...")
+def load_and_prepare_data(file_bytes, file_name, layer_name, selected_column):
+    """Load and prepare geodata with caching for performance."""
+    tmpdir = Path(tempfile.mkdtemp(prefix='dwpro_'))
+    file_path = tmpdir / file_name
+    file_path.write_bytes(file_bytes)
+    
+    if file_path.suffix.lower() == '.gpkg':
+        file_path = utils.ensure_usable_gpkg(file_path)
+    
+    # Read layer
+    gdf = utils.read_layer_any(file_path, layer_name)
+    
+    if gdf.empty:
+        return None, "Layer loaded, but it is empty."
+    
+    # Set CRS
+    if gdf.crs is None:
+        gdf = gdf.set_crs(4326, allow_override=True)
+    else:
+        gdf = gdf.to_crs(4326)
+    
+    # Filter out missing geometries
+    gdf = gdf[~gdf.geometry.isna() & ~gdf.geometry.is_empty].copy()
+    
+    # Clean numeric column if provided
+    if selected_column:
+        s = pd.to_numeric(gdf[selected_column], errors='coerce')
+        mask = ~s.isna() & ~s.isin([float('inf'), -float('inf')])
+        gdf = gdf[mask].copy()
+    
+    return gdf, None
+
+# Get file bytes once
+file_bytes = up.read()
+
+# Get layers
 tmpdir = Path(tempfile.mkdtemp(prefix='dwpro_'))
 file_path = tmpdir / up.name
-file_path.write_bytes(up.read())
+file_path.write_bytes(file_bytes)
 
 if file_path.suffix.lower() == '.gpkg':
     file_path = utils.ensure_usable_gpkg(file_path)
@@ -80,58 +117,90 @@ if file_path.suffix.lower() == '.gpkg':
 layers = utils.list_layers_safe(file_path)
 layer = st.sidebar.selectbox("Layer", layers, index=0)
 
+# Get numeric columns for column selection (need to load data first time)
 try:
-    gdf = utils.read_layer_any(file_path, layer)
+    gdf_temp = utils.read_layer_any(file_path, layer)
+    if gdf_temp.crs is None:
+        gdf_temp = gdf_temp.set_crs(4326, allow_override=True)
+    else:
+        gdf_temp = gdf_temp.to_crs(4326)
+    num_cols = utils.numeric_columns(gdf_temp)
+    str_cols = [c for c in gdf_temp.columns if c != 'geometry' and pd.api.types.is_string_dtype(gdf_temp[c])]
+    
+    if not num_cols:
+        st.error("No numeric columns found in this layer.")
+        st.stop()
+    
+    column = st.sidebar.selectbox("Numeric column to map", num_cols, index=0)
+    del gdf_temp  # Free memory
 except Exception as e:
     st.error(f"Could not read the selected layer.\n\nDetails: {e}")
     st.stop()
 
-if gdf.empty:
-    st.error("Layer loaded, but it is empty.")
+# Load data with caching
+gdf, error = load_and_prepare_data(file_bytes, up.name, layer, column)
+
+if error:
+    st.error(error)
     st.stop()
 
-if gdf.crs is None:
-    gdf = gdf.set_crs(4326, allow_override=True)
-else:
-    gdf = gdf.to_crs(4326)
+if gdf is None or gdf.empty:
+    st.error("No valid rows after cleaning values for the selected column.")
+    st.stop()
 
-# Filter out missing geometries to prevent folium error
-gdf = gdf[~gdf.geometry.isna() & ~gdf.geometry.is_empty].copy()
+# Recalculate after filtering
+s = pd.to_numeric(gdf[column], errors='coerce')
 
 # -----------------------------------------------------------------------------
 # 4. Main Tabs
 # -----------------------------------------------------------------------------
 tab_map, tab_charts, tab_table, tab_export = st.tabs(["Map", "Chart Builder", "Data Table", "Export"])
 
-num_cols = utils.numeric_columns(gdf)
-str_cols = [c for c in gdf.columns if c != 'geometry' and pd.api.types.is_string_dtype(gdf[c])]
+# Classification & Colors (CACHED)
+@st.cache_data(show_spinner=False)
+def compute_classification_and_colors(_gdf_hash, column_name, scheme_name, num_classes, palette_name, custom_color_list, reverse_colors):
+    """Compute classification and colors with caching. _gdf_hash for cache key."""
+    # Get the actual gdf from session state
+    gdf_local = st.session_state.get('_gdf_cache')
+    if gdf_local is None:
+        return None, None, None, None
+    
+    s = pd.to_numeric(gdf_local[column_name], errors='coerce')
+    
+    # Classification
+    cl = utils.classify(s, scheme_name, num_classes)
+    class_assignments = cl.yb
+    
+    # Colors
+    if palette_name == "Custom" and custom_color_list:
+        class_colors = custom_color_list
+    else:
+        class_colors = utils.get_cmap_hexlist(palette_name, num_classes, reverse_colors)
+    
+    # Assign colors to each row
+    color_map = [class_colors[i] for i in class_assignments]
+    
+    return cl, class_assignments, class_colors, color_map
 
-if not num_cols:
-    st.error("No numeric columns found in this layer.")
+# Store gdf in session state for caching
+if '_gdf_cache' not in st.session_state or st.session_state.get('_file_name') != up.name:
+    st.session_state['_gdf_cache'] = gdf
+    st.session_state['_file_name'] = up.name
+
+# Create a hash for cache invalidation
+gdf_hash = f"{up.name}_{layer}_{len(gdf)}"
+
+cl, class_assignments, class_colors, color_map = compute_classification_and_colors(
+    gdf_hash, column, scheme, classes, palette, custom_colors, reverse
+)
+
+if cl is None:
+    st.error("Error computing classification")
     st.stop()
 
-column = st.sidebar.selectbox("Numeric column to map", num_cols, index=0)
-
-# Clean numeric column
-s = pd.to_numeric(gdf[column], errors='coerce')
-mask = ~s.isna() & ~s.isin([float('inf'), -float('inf')])
-gdf = gdf[mask].copy()
-s = pd.to_numeric(gdf[column], errors='coerce')
-
-if gdf.empty:
-    st.error("No valid rows after cleaning values for the selected column.")
-    st.stop()
-
-# Classification & Colors
-cl = utils.classify(s, scheme, classes)
-gdf['__class__'] = cl.yb
-
-if palette == "Custom":
-    class_colors = custom_colors
-else:
-    class_colors = utils.get_cmap_hexlist(palette, classes, reverse)
-
-gdf['__color__'] = [class_colors[i] for i in gdf['__class__']]
+# Add classification results to gdf
+gdf['__class__'] = class_assignments
+gdf['__color__'] = color_map
 
 # -----------------------------------------------------------------------------
 # Tab 1: Map
@@ -205,7 +274,10 @@ with tab_map:
                 annotations.append({'lat': pt.y, 'lon': pt.x, 'text': annot_text})
                 st.success(f"Added: {annot_text}")
 
-    # Map with plugins
+    # Map with plugins (LAZY IMPORTS)
+    import folium
+    from streamlit_folium import st_folium
+    
     m = folium.Map(location=zoom_center, zoom_start=zoom_start, tiles=tiles)
     
     # Add fullscreen button
@@ -223,12 +295,12 @@ with tab_map:
 
     # Tooltips
     all_cols = [c for c in gdf.columns if c not in ['geometry', '__class__', '__color__']]
-    tooltip_cols = st.multiselect("Tooltip columns", all_cols, default=[column])
+    tooltip_cols = st.multiselect("Tooltip columns", all_cols, default=[column] if column in all_cols else [])
 
     folium.GeoJson(
         gdf,
         style_function=style_fn,
-        tooltip=folium.GeoJsonTooltip(fields=tooltip_cols, aliases=tooltip_cols, sticky=False),
+        tooltip=folium.GeoJsonTooltip(fields=tooltip_cols, aliases=tooltip_cols, sticky=False) if tooltip_cols else None,
         highlight_function=lambda f: {'weight':2}
     ).add_to(m)
 
@@ -353,22 +425,67 @@ with tab_charts:
         target_col = st.selectbox("Target Column", all_cols, key="sankey_target")
         
         if source_col and target_col:
-            # Create Sankey data
-            sankey_df = gdf.groupby([source_col, target_col])[y_axis].sum().reset_index()
-            
-            # Create node labels
-            all_nodes = list(set(sankey_df[source_col].unique()) | set(sankey_df[target_col].unique()))
-            node_dict = {node: idx for idx, node in enumerate(all_nodes)}
-            
-            fig = px.sankey(
-                sankey_df,
-                source=[node_dict[s] for s in sankey_df[source_col]],
-                target=[node_dict[t] for t in sankey_df[target_col]],
-                value=sankey_df[y_axis],
-                labels=all_nodes,
-                title="Sankey Diagram - Author: Alfrick Onyinkwa"
-            )
-            st.plotly_chart(fig, use_container_width=True)
+            try:
+                # Validate that source and target are different
+                if source_col == target_col:
+                    st.warning("⚠️ Please select different columns for Source and Target")
+                else:
+                    # Create Sankey data - convert to string to handle any data type
+                    sankey_data = gdf[[source_col, target_col, y_axis]].copy()
+                    sankey_data[source_col] = sankey_data[source_col].astype(str)
+                    sankey_data[target_col] = sankey_data[target_col].astype(str)
+                    
+                    # Remove any rows with missing values
+                    sankey_data = sankey_data.dropna()
+                    
+                    if sankey_data.empty:
+                        st.warning("⚠️ No valid data available for Sankey diagram")
+                    else:
+                        # Aggregate data
+                        sankey_df = sankey_data.groupby([source_col, target_col])[y_axis].sum().reset_index()
+                        
+                        # Filter out zero or negative values
+                        sankey_df = sankey_df[sankey_df[y_axis] > 0]
+                        
+                        if sankey_df.empty:
+                            st.warning("⚠️ No positive values found for flow visualization")
+                        else:
+                            # Create unique node labels
+                            source_nodes = list(sankey_df[source_col].unique())
+                            target_nodes = list(sankey_df[target_col].unique())
+                            all_nodes = list(dict.fromkeys(source_nodes + target_nodes))  # Preserve order, remove duplicates
+                            
+                            # Create node index mapping
+                            node_dict = {node: idx for idx, node in enumerate(all_nodes)}
+                            
+                            # Map source and target to indices
+                            source_indices = [node_dict[s] for s in sankey_df[source_col]]
+                            target_indices = [node_dict[t] for t in sankey_df[target_col]]
+                            
+                            # Create Sankey diagram
+                            fig = px.sankey(
+                                data_frame=sankey_df,
+                                source=source_indices,
+                                target=target_indices,
+                                value=sankey_df[y_axis],
+                                labels=all_nodes,
+                                title="Sankey Diagram - Author: Alfrick Onyinkwa"
+                            )
+                            
+                            # Update layout for better appearance
+                            fig.update_layout(
+                                font=dict(size=12),
+                                height=600
+                            )
+                            
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            # Show summary statistics
+                            st.caption(f"📊 Showing {len(sankey_df)} flows between {len(all_nodes)} nodes")
+                            
+            except Exception as e:
+                st.error(f"❌ Error creating Sankey diagram: {str(e)}")
+                st.info("💡 Tip: Ensure your data has categorical columns for source/target and numeric values for flow")
     
     elif chart_type == "Waterfall":
         fig = px.waterfall(gdf, x=x_axis, y=y_axis, title="Waterfall Chart - Author: Alfrick Onyinkwa")

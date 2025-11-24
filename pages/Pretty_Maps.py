@@ -6,72 +6,28 @@ import tempfile
 from pathlib import Path
 import utils
 import matplotlib.patches as mpatches
+from matplotlib.patches import Circle, Rectangle
 import numpy as np
 from matplotlib.colors import LinearSegmentedColormap
 import io
+from shapely.geometry import Point, box
 
 st.set_page_config(page_title="Pretty Maps Pro", layout="wide", page_icon="🎨")
 
 st.title("🎨 Pretty Maps Pro - Artistic Cartography Studio")
-st.caption("Professional artistic map generation | **Code/Author: Alfrick Onyinkwa**")
+st.caption("Professional artistic map generation inspired by prettymapp | **Code/Author: Alfrick Onyinkwa**")
 
 # Sidebar
 with st.sidebar:
-    st.header("📍 Location Input")
+    st.header("📍 Location")
+    location = st.text_input("Enter Location", "Praça Ferreira do Amaral, Macau")
+    radius = st.slider("Radius (meters)", 100, 5000, 500, 50)
     
-    input_method = st.radio("Input Method", ["Address/Place", "Coordinates", "Bounding Box", "Upload GeoJSON"])
-    
-    if input_method == "Address/Place":
-        location = st.text_input("Enter Location", "Central Park, New York City")
-        radius = st.slider("Radius (meters)", 100, 5000, 800, 100)
-        
-    elif input_method == "Coordinates":
-        col1, col2 = st.columns(2)
-        with col1:
-            lat = st.number_input("Latitude", value=40.7829, format="%.6f")
-        with col2:
-            lon = st.number_input("Longitude", value=-73.9654, format="%.6f")
-        radius = st.slider("Radius (meters)", 100, 5000, 800, 100)
-        location = (lat, lon)
-        
-    elif input_method == "Bounding Box":
-        st.caption("Define custom bounding box")
-        col1, col2 = st.columns(2)
-        with col1:
-            north = st.number_input("North", value=40.80, format="%.6f")
-            south = st.number_input("South", value=40.76, format="%.6f")
-        with col2:
-            east = st.number_input("East", value=-73.95, format="%.6f")
-            west = st.number_input("West", value=-73.99, format="%.6f")
-        bbox = (north, south, east, west)
-        location = None
-        
-    else:  # Upload GeoJSON
-        up = st.file_uploader("Upload GeoJSON/GPKG", type=["geojson", "json", "gpkg"])
-        if not up:
-            st.info("📤 Upload a GeoJSON or GPKG file")
-            st.stop()
-        else:
-            tmpdir = Path(tempfile.mkdtemp(prefix='prettymap_'))
-            file_path = tmpdir / up.name
-            file_path.write_bytes(up.read())
-            
-            if file_path.suffix.lower() == '.gpkg':
-                file_path = utils.ensure_usable_gpkg(file_path)
-                layers = utils.list_layers_safe(file_path)
-                layer = st.selectbox("Select Layer", layers) if len(layers) > 1 else layers[0]
-                uploaded_gdf = utils.read_layer_any(file_path, layer)
-            else:
-                uploaded_gdf = gpd.read_file(file_path)
-            
-            if uploaded_gdf.crs is None:
-                uploaded_gdf = uploaded_gdf.set_crs(4326)
-            
-            st.success(f"✅ Loaded {len(uploaded_gdf)} features")
-            location = None
-    
-    st.header("🎨 Style Preset")
-    preset = st.selectbox("Choose Style", [
+    st.header("🎨 Color Theme")
+    preset = st.selectbox("Choose Preset", [
+        "Peach",
+        "Macao",
+        "Aubergine", 
         "Minimal (B&W)",
         "Vibrant Colors",
         "Watercolor",
@@ -80,12 +36,39 @@ with st.sidebar:
         "Vintage Map",
         "Pastel Dream",
         "Dark Mode",
-        "Satellite Style",
-        "Hand Drawn",
         "Cyberpunk",
         "Nature",
         "Custom"
     ])
+    
+    # Customize map style section
+    with st.expander("🎨 Customize Map Style"):
+        st.subheader("Map Shape")
+        map_shape = st.selectbox("Shape", ["Circle", "Rectangle", "Square"], key="map_shape")
+        
+        st.subheader("Background")
+        bg_shape = st.selectbox("Background Shape", ["Circle", "Rectangle", "Square"], key="bg_shape")
+        bg_color = st.color_picker("Background Color", "#F2F4CB")
+        bg_buffer = st.slider("Background Size", 0, 50, 0, help="Padding around map")
+        
+        st.subheader("Contour")
+        show_contour = st.checkbox("Show Contour", value=True)
+        contour_color = st.color_picker("Contour Color", "#2F3737")
+        contour_width = st.slider("Contour Width", 0, 20, 0)
+        
+        st.subheader("Title")
+        custom_title = st.text_input("Custom Title", "")
+        title_size = st.slider("Title Font Size", 10, 50, 25)
+        
+        st.subheader("Font Colors")
+        title_color = st.color_picker("Title Color", "#2F3737")
+        subtitle_color = st.color_picker("Subtitle Color", "#2F3737")
+        
+        st.subheader("Text Outline")
+        text_outline = st.checkbox("Text Outline", value=False)
+        if text_outline:
+            outline_color = st.color_picker("Outline Color", "#FFFFFF")
+            outline_width = st.slider("Outline Width", 1, 10, 3)
     
     st.header("🗺️ Map Elements")
     show_buildings = st.checkbox("Buildings", value=True)
@@ -93,16 +76,38 @@ with st.sidebar:
     show_water = st.checkbox("Water Bodies", value=True)
     show_green = st.checkbox("Green Spaces", value=True)
     show_railways = st.checkbox("Railways", value=False)
-    show_amenities = st.checkbox("Amenities (POIs)", value=False)
     
     st.header("⚙️ Advanced Options")
-    building_height = st.checkbox("3D Building Effect", value=False)
-    street_width_var = st.slider("Street Width Variation", 0.5, 3.0, 1.0, 0.1)
-    edge_style = st.selectbox("Edge Style", ["Solid", "Dashed", "Dotted", "None"])
-    add_texture = st.checkbox("Add Texture/Noise", value=False)
+    dilate = st.slider("Dilate (boundary expansion)", 0, 100, 0)
+    street_width_var = st.slider("Street Width", 0.5, 5.0, 1.5, 0.1)
+    building_alpha = st.slider("Building Transparency", 0.0, 1.0, 0.7, 0.05)
 
-# Style presets with professional palettes
+# Enhanced style presets matching prettymapp
 style_presets = {
+    "Peach": {
+        'background': '#F2F4CB',
+        'perimeter': '#2F3737',
+        'streets': {'fc': '#2F3737', 'width': 1.5},
+        'building': {'palette': ['#FFC3A0', '#FFAFBD', '#FF8C94'], 'edge': '#2F3737', 'alpha': 0.7},
+        'water': {'fc': '#a8e1e6', 'alpha': 0.6},
+        'green': {'fc': '#8BB174', 'alpha': 0.6},
+    },
+    "Macao": {
+        'background': '#F2F4CB',
+        'perimeter': '#2F3737',
+        'streets': {'fc': '#2F3737', 'width': 1.5},
+        'building': {'palette': ['#433633', '#FF5E5B'], 'edge': '#2F3737', 'alpha': 0.7},
+        'water': {'fc': '#a8e1e6', 'alpha': 0.6},
+        'green': {'fc': '#8BB174', 'alpha': 0.6},
+    },
+    "Aubergine": {
+        'background': '#EAD7D1',
+        'perimeter': '#2F3737',
+        'streets': {'fc': '#2F3737', 'width': 1.5},
+        'building': {'palette': ['#6C5B7B', '#C06C84', '#F67280'], 'edge': '#2F3737', 'alpha': 0.7},
+        'water': {'fc': '#a8e1e6', 'alpha': 0.6},
+        'green': {'fc': '#8BB174', 'alpha': 0.6},
+    },
     "Minimal (B&W)": {
         'background': '#FFFFFF',
         'perimeter': '#000000',
@@ -167,22 +172,6 @@ style_presets = {
         'water': {'fc': '#1e3a5f', 'alpha': 0.7},
         'green': {'fc': '#2d4a2b', 'alpha': 0.6},
     },
-    "Satellite Style": {
-        'background': '#0d1117',
-        'perimeter': '#58a6ff',
-        'streets': {'fc': '#8b949e', 'width': 1.2},
-        'building': {'palette': ['#30363d', '#484f58', '#6e7681'], 'edge': '#8b949e', 'alpha': 0.85},
-        'water': {'fc': '#1f6feb', 'alpha': 0.6},
-        'green': {'fc': '#238636', 'alpha': 0.5},
-    },
-    "Hand Drawn": {
-        'background': '#FFFEF2',
-        'perimeter': '#2C2416',
-        'streets': {'fc': '#5C4A3A', 'width': 1.8},
-        'building': {'palette': ['#8B7355', '#A0826D', '#B8956A'], 'edge': '#2C2416', 'alpha': 0.75},
-        'water': {'fc': '#7FCDCD', 'alpha': 0.6},
-        'green': {'fc': '#A8C686', 'alpha': 0.5},
-    },
     "Cyberpunk": {
         'background': '#0f0f23',
         'perimeter': '#ff00ff',
@@ -203,9 +192,10 @@ style_presets = {
 
 if preset != "Custom":
     palette = style_presets[preset]
+    # Override with custom settings from expander
+    palette['background'] = bg_color
 else:
     st.sidebar.subheader("🎨 Custom Colors")
-    bg_color = st.sidebar.color_picker("Background", "#FFFFFF")
     street_color = st.sidebar.color_picker("Streets", "#2F3737")
     building_color = st.sidebar.color_picker("Buildings", "#433633")
     water_color = st.sidebar.color_picker("Water", "#a8e1e6")
@@ -213,163 +203,192 @@ else:
     
     palette = {
         'background': bg_color,
+        'perimeter': contour_color,
         'streets': {'fc': street_color, 'width': 1.5},
-        'building': {'palette': [building_color], 'edge': '#000000', 'alpha': 0.8},
+        'building': {'palette': [building_color], 'edge': contour_color, 'alpha': 0.8},
         'water': {'fc': water_color, 'alpha': 0.7},
         'green': {'fc': green_color, 'alpha': 0.6},
     }
 
+# Override building alpha with slider value
+palette['building']['alpha'] = building_alpha
+
 # Generate map
 if st.button("🎨 Generate Artistic Map", type="primary", use_container_width=True):
-    with st.spinner("🎨 Creating your professional artistic map..."):
+    with st.spinner("🎨 Creating your beautiful map..."):
         try:
-            fig, ax = plt.subplots(figsize=(14, 14), constrained_layout=True, 
-                                  facecolor=palette['background'])
+            # Geocode location
+            point = ox.geocode(location)
+            
+            # Create figure with custom background
+            fig, ax = plt.subplots(figsize=(12, 12), facecolor=palette['background'])
             ax.set_facecolor(palette['background'])
             
-            if input_method == "Upload GeoJSON":
-                # Plot uploaded GeoJSON
-                uploaded_gdf.plot(ax=ax, 
-                                facecolor=palette['building']['palette'][0], 
-                                edgecolor=palette['building']['edge'],
-                                linewidth=0.8, alpha=palette['building']['alpha'])
-                
-            else:
-                # Download OSM data
-                if input_method == "Bounding Box":
-                    point = None
-                elif isinstance(location, str):
-                    point = ox.geocode(location)
-                else:
-                    point = location
-                
-                # Buildings
-                if show_buildings:
-                    try:
-                        if input_method == "Bounding Box":
-                            buildings = ox.features_from_bbox(bbox, tags={'building': True})
-                        else:
-                            buildings = ox.features_from_point(point, tags={'building': True}, dist=radius)
-                        
-                        if not buildings.empty:
-                            for idx, building in buildings.iterrows():
-                                color = np.random.choice(palette['building']['palette'])
-                                
-                                if building_height and 'height' in building:
-                                    # 3D effect with shadow
-                                    offset = 0.00002
-                                    shadow = building.geometry.buffer(offset)
-                                    gpd.GeoSeries([shadow]).plot(ax=ax, facecolor='#000000', alpha=0.3, zorder=1)
-                                
-                                gpd.GeoSeries([building.geometry]).plot(
-                                    ax=ax, facecolor=color,
-                                    edgecolor=palette['building']['edge'],
-                                    linewidth=0.5 if edge_style != "None" else 0,
-                                    linestyle='--' if edge_style == "Dashed" else (':' if edge_style == "Dotted" else '-'),
-                                    alpha=palette['building']['alpha'],
-                                    zorder=2
-                                )
-                    except Exception as e:
-                        st.warning(f"Buildings: {str(e)}")
-                
-                # Streets
-                if show_streets:
-                    try:
-                        if input_method == "Bounding Box":
-                            G = ox.graph_from_bbox(bbox, network_type='all')
-                        else:
-                            G = ox.graph_from_point(point, dist=radius, network_type='all')
-                        
-                        edges = ox.graph_to_gdfs(G, nodes=False)
-                        edges.plot(ax=ax, 
-                                  color=palette['streets']['fc'],
-                                  linewidth=palette['streets']['width'] * street_width_var,
-                                  alpha=0.9, zorder=3)
-                    except Exception as e:
-                        st.warning(f"Streets: {str(e)}")
-                
-                # Water
-                if show_water:
-                    try:
-                        if input_method == "Bounding Box":
-                            water = ox.features_from_bbox(bbox, tags={'natural': 'water'})
-                        else:
-                            water = ox.features_from_point(point, tags={'natural': 'water'}, dist=radius)
-                        
-                        if not water.empty:
-                            water.plot(ax=ax, facecolor=palette['water']['fc'],
-                                     edgecolor='none', alpha=palette['water']['alpha'], zorder=1)
-                    except Exception as e:
-                        pass
-                
-                # Green spaces
-                if show_green:
-                    try:
-                        if input_method == "Bounding Box":
-                            green = ox.features_from_bbox(bbox, tags={'landuse': ['grass', 'forest', 'park', 'garden']})
-                        else:
-                            green = ox.features_from_point(point, tags={'landuse': ['grass', 'forest', 'park', 'garden']}, dist=radius)
-                        
-                        if not green.empty:
-                            green.plot(ax=ax, facecolor=palette['green']['fc'],
-                                     edgecolor='none', alpha=palette['green']['alpha'], zorder=1)
-                    except Exception as e:
-                        pass
-                
-                # Railways
-                if show_railways:
-                    try:
-                        if input_method == "Bounding Box":
-                            railway = ox.features_from_bbox(bbox, tags={'railway': True})
-                        else:
-                            railway = ox.features_from_point(point, tags={'railway': True}, dist=radius)
-                        
-                        if not railway.empty:
-                            railway.plot(ax=ax, color='#666666', linewidth=1.5, alpha=0.7, zorder=3)
-                    except Exception as e:
-                        pass
-                
-                # Amenities (POIs)
-                if show_amenities:
-                    try:
-                        if input_method == "Bounding Box":
-                            amenities = ox.features_from_bbox(bbox, tags={'amenity': True})
-                        else:
-                            amenities = ox.features_from_point(point, tags={'amenity': True}, dist=radius)
-                        
-                        if not amenities.empty:
-                            amenities.plot(ax=ax, color='red', markersize=20, alpha=0.6, zorder=4)
-                    except Exception as e:
-                        pass
+            # Calculate effective radius with dilate
+            effective_radius = radius + dilate
             
-            # Add texture/noise if requested
-            if add_texture:
-                xlim = ax.get_xlim()
-                ylim = ax.get_ylim()
-                noise = np.random.rand(100, 100) * 0.1
-                ax.imshow(noise, extent=[xlim[0], xlim[1], ylim[0], ylim[1]], 
-                         cmap='gray', alpha=0.05, zorder=0)
+            # Track what features were found
+            features_found = []
+            features_missing = []
+            
+            # Download OSM data
+            # Buildings
+            buildings_gdf = None
+            if show_buildings:
+                try:
+                    buildings = ox.features_from_point(point, tags={'building': True}, dist=effective_radius)
+                    if not buildings.empty:
+                        buildings_gdf = buildings
+                        features_found.append("Buildings")
+                        for idx, building in buildings.iterrows():
+                            color = np.random.choice(palette['building']['palette'])
+                            gpd.GeoSeries([building.geometry]).plot(
+                                ax=ax, facecolor=color,
+                                edgecolor=palette['building']['edge'],
+                                linewidth=0.5,
+                                alpha=palette['building']['alpha'],
+                                zorder=2
+                            )
+                    else:
+                        features_missing.append("Buildings")
+                except Exception as e:
+                    features_missing.append(f"Buildings ({str(e)[:30]})")
+            
+            # Streets
+            if show_streets:
+                try:
+                    G = ox.graph_from_point(point, dist=effective_radius, network_type='all')
+                    edges = ox.graph_to_gdfs(G, nodes=False)
+                    features_found.append("Streets")
+                    edges.plot(ax=ax, 
+                              color=palette['streets']['fc'],
+                              linewidth=palette['streets']['width'] * street_width_var,
+                              alpha=0.9, zorder=3)
+                except Exception as e:
+                    features_missing.append(f"Streets ({str(e)[:30]})")
+            
+            # Water
+            if show_water:
+                try:
+                    water = ox.features_from_point(point, tags={'natural': 'water'}, dist=effective_radius)
+                    if not water.empty:
+                        features_found.append("Water")
+                        water.plot(ax=ax, facecolor=palette['water']['fc'],
+                                 edgecolor='none', alpha=palette['water']['alpha'], zorder=1)
+                    else:
+                        features_missing.append("Water")
+                except Exception as e:
+                    features_missing.append("Water")
+            
+            # Green spaces
+            if show_green:
+                try:
+                    green = ox.features_from_point(point, tags={'landuse': ['grass', 'forest', 'park', 'garden']}, dist=effective_radius)
+                    if not green.empty:
+                        features_found.append("Green spaces")
+                        green.plot(ax=ax, facecolor=palette['green']['fc'],
+                                 edgecolor='none', alpha=palette['green']['alpha'], zorder=1)
+                    else:
+                        features_missing.append("Green spaces")
+                except Exception as e:
+                    features_missing.append("Green spaces")
+            
+            # Railways
+            if show_railways:
+                try:
+                    railway = ox.features_from_point(point, tags={'railway': True}, dist=effective_radius)
+                    if not railway.empty:
+                        railway.plot(ax=ax, color='#666666', linewidth=1.5, alpha=0.7, zorder=3)
+                except Exception as e:
+                    pass
+            
+            # Get current axis limits
+            xlim = ax.get_xlim()
+            ylim = ax.get_ylim()
+            center_x = (xlim[0] + xlim[1]) / 2
+            center_y = (ylim[0] + ylim[1]) / 2
+            
+            # Apply map shape clipping
+            if map_shape == "Circle":
+                # Create circular clip path
+                radius_deg = (xlim[1] - xlim[0]) / 2
+                circle = Circle((center_x, center_y), radius_deg, transform=ax.transData)
+                for artist in ax.get_children():
+                    if hasattr(artist, 'set_clip_path'):
+                        artist.set_clip_path(circle)
+            elif map_shape == "Square":
+                # Make square by using smaller dimension
+                size = min(xlim[1] - xlim[0], ylim[1] - ylim[0])
+                half_size = size / 2
+                ax.set_xlim(center_x - half_size, center_x + half_size)
+                ax.set_ylim(center_y - half_size, center_y + half_size)
+            # Rectangle is default, no clipping needed
+            
+            # Add background shape
+            if bg_buffer > 0:
+                buffer_deg = bg_buffer * 0.00001  # Convert to degrees approximately
+                if bg_shape == "Circle":
+                    bg_radius = (xlim[1] - xlim[0]) / 2 + buffer_deg
+                    bg_circle = Circle((center_x, center_y), bg_radius, 
+                                      facecolor=palette['background'], 
+                                      edgecolor='none', zorder=0)
+                    ax.add_patch(bg_circle)
+                elif bg_shape == "Rectangle":
+                    bg_rect = Rectangle((xlim[0] - buffer_deg, ylim[0] - buffer_deg),
+                                       xlim[1] - xlim[0] + 2*buffer_deg,
+                                       ylim[1] - ylim[0] + 2*buffer_deg,
+                                       facecolor=palette['background'],
+                                       edgecolor='none', zorder=0)
+                    ax.add_patch(bg_rect)
+                elif bg_shape == "Square":
+                    size = min(xlim[1] - xlim[0], ylim[1] - ylim[0]) + 2*buffer_deg
+                    bg_square = Rectangle((center_x - size/2, center_y - size/2),
+                                         size, size,
+                                         facecolor=palette['background'],
+                                         edgecolor='none', zorder=0)
+                    ax.add_patch(bg_square)
+            
+            # Add contour
+            if show_contour and contour_width > 0:
+                if map_shape == "Circle":
+                    radius_deg = (xlim[1] - xlim[0]) / 2
+                    contour_circle = Circle((center_x, center_y), radius_deg,
+                                           facecolor='none',
+                                           edgecolor=contour_color,
+                                           linewidth=contour_width, zorder=10)
+                    ax.add_patch(contour_circle)
+                else:
+                    # Rectangle/Square contour
+                    rect = Rectangle((xlim[0], ylim[0]),
+                                    xlim[1] - xlim[0],
+                                    ylim[1] - ylim[0],
+                                    facecolor='none',
+                                    edgecolor=contour_color,
+                                    linewidth=contour_width, zorder=10)
+                    ax.add_patch(rect)
             
             ax.axis('off')
-            ax.set_xlim(ax.get_xlim())
-            ax.set_ylim(ax.get_ylim())
             ax.set_aspect('equal')
             
-            # Title
-            if input_method == "Upload GeoJSON":
-                title_text = f"Custom Map - {up.name}"
-            elif input_method == "Bounding Box":
-                title_text = f"Custom Area Map"
+            # Add title
+            title_text = custom_title if custom_title else location
+            if text_outline:
+                # Add text with outline effect
+                import matplotlib.patheffects as path_effects
+                title = fig.suptitle(title_text, fontsize=title_size, fontweight='bold', 
+                                    y=0.95, color=title_color)
+                title.set_path_effects([
+                    path_effects.Stroke(linewidth=outline_width, foreground=outline_color),
+                    path_effects.Normal()
+                ])
             else:
-                title_text = location if isinstance(location, str) else f"Lat: {location[0]:.4f}, Lon: {location[1]:.4f}"
-            
-            fig.suptitle(title_text, fontsize=20, fontweight='bold', y=0.98, 
-                        color=palette.get('perimeter', '#000000'))
+                fig.suptitle(title_text, fontsize=title_size, fontweight='bold', 
+                           y=0.95, color=title_color)
             
             # Credits
-            plt.figtext(0.99, 0.01, f"Author: Alfrick Onyinkwa | Style: {preset}", 
-                       ha='right', fontsize=9, style='italic',
-                       color=palette.get('perimeter', '#000000'))
+            plt.figtext(0.99, 0.01, f"Created with Pretty Maps Pro | Style: {preset}", 
+                       ha='right', fontsize=8, style='italic',
+                       color=subtitle_color)
             
             st.pyplot(fig)
             
@@ -379,35 +398,44 @@ if st.button("🎨 Generate Artistic Map", type="primary", use_container_width=T
             with col1:
                 buf_png = io.BytesIO()
                 plt.savefig(buf_png, format='png', dpi=300, bbox_inches='tight', 
-                           facecolor=palette['background'])
+                           facecolor=palette['background'], pad_inches=0.2)
                 buf_png.seek(0)
-                st.download_button("⬇️ PNG (300 DPI)", data=buf_png, 
-                                 file_name="artistic_map.png", mime="image/png",
+                st.download_button("⬇️ Download PNG", data=buf_png, 
+                                 file_name=f"{location.replace(' ', '_')}_map.png", 
+                                 mime="image/png",
                                  use_container_width=True)
             
             with col2:
                 buf_svg = io.BytesIO()
                 plt.savefig(buf_svg, format='svg', bbox_inches='tight', 
-                           facecolor=palette['background'])
+                           facecolor=palette['background'], pad_inches=0.2)
                 buf_svg.seek(0)
-                st.download_button("⬇️ SVG (Vector)", data=buf_svg, 
-                                 file_name="artistic_map.svg", mime="image/svg+xml",
+                st.download_button("⬇️ Download SVG", data=buf_svg, 
+                                 file_name=f"{location.replace(' ', '_')}_map.svg", 
+                                 mime="image/svg+xml",
                                  use_container_width=True)
             
             with col3:
                 buf_pdf = io.BytesIO()
                 plt.savefig(buf_pdf, format='pdf', bbox_inches='tight', 
-                           facecolor=palette['background'])
+                           facecolor=palette['background'], pad_inches=0.2)
                 buf_pdf.seek(0)
-                st.download_button("⬇️ PDF (Print)", data=buf_pdf, 
-                                 file_name="artistic_map.pdf", mime="application/pdf",
+                st.download_button("⬇️ Download PDF", data=buf_pdf, 
+                                 file_name=f"{location.replace(' ', '_')}_map.pdf", 
+                                 mime="application/pdf",
                                  use_container_width=True)
             
             plt.close(fig)
             
+            # Show what was found
+            if features_found:
+                st.success("✅ Map created with: " + ", ".join(features_found))
+            if features_missing:
+                st.info("ℹ️ Not available in this area: " + ", ".join(features_missing))
+            
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")
-            st.info("💡 Try: Different location, smaller radius, or check internet connection")
+            st.info("💡 Try: Different location (e.g., 'Central Park, New York'), smaller radius (100-500m), or check internet connection")
 
 # Examples and tips
 with st.expander("📍 Example Locations"):
@@ -415,11 +443,11 @@ with st.expander("📍 Example Locations"):
     with col1:
         st.markdown("""
         **Famous Landmarks:**
+        - Praça Ferreira do Amaral, Macau
         - Times Square, New York City
         - Eiffel Tower, Paris
         - Colosseum, Rome
         - Big Ben, London
-        - Tokyo Tower, Tokyo
         """)
     with col2:
         st.markdown("""
@@ -433,11 +461,11 @@ with st.expander("📍 Example Locations"):
 
 with st.expander("💡 Pro Tips"):
     st.markdown("""
-    - **For detailed maps**: Use smaller radius (100-500m)
-    - **For city overviews**: Use larger radius (1000-5000m)
-    - **Bounding Box**: Perfect for custom rectangular areas
-    - **Upload GeoJSON**: Use your own data for complete control
-    - **3D Effect**: Enable for modern architectural visualization
-    - **Texture**: Adds organic, hand-drawn feel
-    - **Export SVG**: For editing in Adobe Illustrator
+    - **Radius**: Smaller radius (100-500m) for detailed maps, larger (1000-5000m) for city overviews
+    - **Map Shape**: Circle for landmarks, Rectangle for streets and neighborhoods
+    - **Background Buffer**: Add padding around your map for a cleaner look
+    - **Contour**: Add a border to frame your map beautifully
+    - **Dilate**: Expand the boundary to include more context around your location
+    - **Custom Title**: Add a personalized title to your map
+    - **Export SVG**: Perfect for editing in Adobe Illustrator or other vector software
     """)
