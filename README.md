@@ -1,4 +1,4 @@
-# GeoViz Studio (formerly Datawrapper-Pro)
+# GeoViz Studio
 **Code/Author**: Alfrick Onyinkwa
 
 Robust geospatial visualization tool that reads **GPKG/GeoJSON/zipped Shapefile**, auto‑detects layers & numeric columns, offers **Quantile / Equal Interval / Jenks** classes, **ColorBrewer‑style palettes**, and a **Datawrapper‑style legend**. Includes **automatic GPKG repair** (sqlite VACUUM, pyogrio rewrite, ogr2ogr if installed).
